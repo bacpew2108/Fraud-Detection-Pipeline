@@ -1,0 +1,63 @@
+services:
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+
+  spark-master:
+    image: apache/spark:latest
+    container_name: spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - spark-data:/opt/spark/work-dir
+
+  spark-worker:
+    image: apache/spark:latest
+    depends_on: 
+      - spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    volumes:
+      - spark-data:/opt/spark/work-dir
+    
+  cache:
+    image: redis:latest
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+  
+  oracle-db:
+    image: gvenzl/oracle-free:latest
+    container_name: oracle-db
+    environment:
+      - ORACLE_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+
+volumes:
+  spark-data:
+  redis-data:
+  oracle-data:

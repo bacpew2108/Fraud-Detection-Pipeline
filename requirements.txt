@@ -1,0 +1,6 @@
+faker == 37.1.0
+kafka-python == 2.3.0
+redis == 7.2.0
+pyspark == 4.1.1
+python-dotenv == 1.2.1
+oracledb == 3.4.1
