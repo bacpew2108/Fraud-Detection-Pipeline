@@ -1,6 +1,6 @@
 services:
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.6.1
     container_name: kafka
     ports:
       - "9092:9092"
@@ -18,46 +18,73 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
-
-  spark-master:
-    image: apache/spark:latest
-    container_name: spark-master
-    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
-    environment:
-      - SPARK_MODE=master
-    ports:
-      - "8080:8080"
-      - "7077:7077"
+      # Mặc định 1G heap, dư thừa cho 1 broker demo
+      KAFKA_HEAP_OPTS: '-Xms256m -Xmx512m'
     volumes:
-      - spark-data:/opt/spark/work-dir
+      - kafka-data:/var/lib/kafka/data
+    # Mỗi lần check khởi động một JVM (~1.5s CPU): check dày lúc start, sau đó 60s/lần
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      start_period: 60s
+      start_interval: 3s
+      interval: 60s
+      timeout: 10s
+      retries: 3
 
-  spark-worker:
-    image: apache/spark:latest
-    depends_on: 
-      - spark-master
-    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
-    volumes:
-      - spark-data:/opt/spark/work-dir
-    
-  cache:
-    image: redis:latest
+  # Chạy một lần để tạo topic rồi thoát (idempotent nhờ --if-not-exists)
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        for topic in ${KAFKA_TOPIC_TRANSACTIONS:-transactions} ${KAFKA_TOPIC_FRAUD_ALERTS:-fraud_alerts}; do
+          kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$topic" --partitions 3 --replication-factor 1
+        done
+        kafka-topics --bootstrap-server kafka:29092 --list
+    restart: "no"
+
+  redis:
+    image: redis:7.4-alpine
     container_name: redis_cache
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
-  
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   oracle-db:
-    image: gvenzl/oracle-free:latest
+    image: gvenzl/oracle-free:23-slim
     container_name: oracle-db
     environment:
-      - ORACLE_PASSWORD=${DB_PASSWORD}
+      ORACLE_PASSWORD: ${ORACLE_ADMIN_PASSWORD:?Thiếu ORACLE_ADMIN_PASSWORD trong .env}
+      APP_USER: ${DB_USER:?Thiếu DB_USER trong .env}
+      APP_USER_PASSWORD: ${DB_PASSWORD:?Thiếu DB_PASSWORD trong .env}
     ports:
       - "1521:1521"
     volumes:
       - oracle-data:/opt/oracle/oradata
+      # Script trong thư mục này chỉ chạy khi volume oracle-data còn trống
+      - ./database/oracle-init:/container-entrypoint-initdb.d:ro
+      - ./database/init_oracle.sql:/opt/fraud/init_oracle.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      start_period: 300s
+      start_interval: 5s
+      interval: 60s
+      timeout: 10s
+      retries: 3
 
 volumes:
-  spark-data:
+  kafka-data:
   redis-data:
   oracle-data:
